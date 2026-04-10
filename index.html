@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro-RAG Interactive Simulator</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --primary-accent: #38bdf8;
+            --secondary-accent: #818cf8;
+            --success: #4ade80;
+            --text-main: #f1f5f9;
+            --text-dim: #94a3b8;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .dashboard {
+            width: 100%;
+            max-width: 1200px;
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            grid-template-rows: auto 1fr;
+            gap: 20px;
+        }
+
+        header {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 20px;
+        }
+
+        h1 { margin: 0; background: linear-gradient(90deg, var(--primary-accent), var(--secondary-accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 2.5rem; }
+
+        .panel {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        /* Vector Map Styles */
+        .vector-container {
+            position: relative;
+            height: 400px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 12px;
+            border: 1px solid #334155;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .axis { position: absolute; background: #334155; }
+        .axis-x { height: 1px; width: 100%; top: 50%; }
+        .axis-y { width: 1px; height: 100%; left: 50%; }
+
+        .data-point {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            cursor: pointer;
+        }
+
+        .query-point {
+            width: 16px;
+            height: 16px;
+            background: white;
+            box-shadow: 0 0 15px white;
+            z-index: 10;
+        }
+
+        /* Step Controls */
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .step-card {
+            padding: 15px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            border-left: 4px solid transparent;
+            transition: 0.3s;
+        }
+
+        .step-card.active {
+            border-left-color: var(--primary-accent);
+            background: rgba(56, 189, 248, 0.1);
+        }
+
+        button {
+            background: var(--primary-accent);
+            color: var(--bg-color);
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        button:hover { opacity: 0.9; transform: translateY(-2px); }
+
+        pre {
+            background: #000;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: var(--success);
+            white-space: pre-wrap;
+            border: 1px solid #334155;
+        }
+
+        .label { font-size: 0.7rem; color: var(--text-dim); position: absolute; white-space: nowrap; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<div class="dashboard">
+    <header>
+        <h1>RAG Flow Simulator</h1>
+        <p style="color: var(--text-dim)">Visualizing Knowledge Retrieval and Augmentation</p>
+    </header>
+
+    <div class="panel controls">
+        <div id="step1" class="step-card active">
+            <h3>1. Ingestion</h3>
+            <p style="font-size: 0.9rem">Chunks are converted into high-dimensional vectors.</p>
+        </div>
+        <div id="step2" class="step-card">
+            <h3>2. Retrieval</h3>
+            <p style="font-size: 0.9rem">User query is vectorized and compared to database.</p>
+        </div>
+        <div id="step3" class="step-card">
+            <h3>3. Generation</h3>
+            <p style="font-size: 0.9rem">Top chunks are fed into the LLM with the prompt.</p>
+        </div>
+        <button onclick="runNextStep()" id="actionBtn">Start: Embed Data</button>
+        <button onclick="location.reload()" style="background: #334155; color: white;">Reset</button>
+    </div>
+
+    <div class="panel">
+        <div class="vector-container" id="vector-space">
+            <div class="axis axis-x"></div>
+            <div class="axis axis-y"></div>
+            <div style="position:absolute; bottom:10px; right:10px; color:#475569">Semantic X</div>
+            <div style="position:absolute; top:10px; left:10px; color:#475569">Semantic Y</div>
+        </div>
+
+        <h3>Augmented Prompt (LLM Input)</h3>
+        <pre id="prompt-output">// Step 1 will populate this data...</pre>
+    </div>
+</div>
+
+<script>
+    let currentStep = 0;
+    const space = document.getElementById('vector-space');
+    const promptOut = document.getElementById('prompt-output');
+    
+    // Mock Data representing Chunks
+    const database = [
+        { id: 1, text: "The capital of France is Paris.", x: 80, y: 75, color: '#f87171' },
+        { id: 2, text: "The iPhone was first released in 2007.", x: 20, y: 30, color: '#4ade80' },
+        { id: 3, text: "Honey never spoils due to its low moisture.", x: 45, y: 15, color: '#fbbf24' },
+        { id: 4, text: "The Eiffel Tower is located in Paris.", x: 85, y: 70, color: '#f87171' }
+    ];
+
+    const userQuery = { text: "Where is the Eiffel Tower?", x: 78, y: 68 };
+
+    function runNextStep() {
+        currentStep++;
+        
+        if (currentStep === 1) {
+            // STEP 1: EMBEDDING
+            document.getElementById('step1').classList.add('active');
+            database.forEach((item, index) => {
+                setTimeout(() => {
+                    createPoint(item.x, item.y, item.color, `Chunk ${item.id}`, `chunk-${item.id}`);
+                }, index * 200);
+            });
+            promptOut.innerText = "System: Converting database into vectors...";
+            document.getElementById('actionBtn').innerText = "Ask: 'Where is the Eiffel Tower?'";
+        } 
+        
+        else if (currentStep === 2) {
+            // STEP 2: RETRIEVAL
+            document.querySelectorAll('.step-card').forEach(s => s.classList.remove('active'));
+            document.getElementById('step2').classList.add('active');
+            
+            // Create Query Point
+            createPoint(userQuery.x, userQuery.y, 'white', 'QUERY', 'query-pt', true);
+            
+            promptOut.innerText = "Searching for nearest vectors...\n\nSimilarity Scores:\n";
+            
+            // Find "Nearest" (Chunk 4 and Chunk 1)
+            setTimeout(() => {
+                const c4 = document.getElementById('chunk-4');
+                const c1 = document.getElementById('chunk-1');
+                c4.style.boxShadow = "0 0 20px #38bdf8";
+                c4.style.transform = "translate(-50%, -50%) scale(1.5)";
+                c1.style.boxShadow = "0 0 20px #38bdf8";
+                
+                promptOut.innerText += "Match Found: Chunk 4 (Score: 0.98)\nMatch Found: Chunk 1 (Score: 0.85)";
+            }, 800);
+            
+            document.getElementById('actionBtn').innerText = "Augment & Generate Response";
+        }
+
+        else if (currentStep === 3) {
+            // STEP 3: GENERATION
+            document.querySelectorAll('.step-card').forEach(s => s.classList.remove('active'));
+            document.getElementById('step3').classList.add('active');
+            
+            const finalPrompt = `[SYSTEM INSTRUCTION]
+Answer the user query using only the provided Context.
+
+[CONTEXT]
+1. ${database[3].text}
+2. ${database[0].text}
+
+[USER QUERY]
+${userQuery.text}
+
+[LLM OUTPUT]
+The Eiffel Tower is located in Paris, France.`;
+
+            promptOut.innerText = finalPrompt;
+            document.getElementById('actionBtn').style.display = 'none';
+        }
+    }
+
+    function createPoint(x, y, color, labelText, id, isQuery = false) {
+        const dot = document.createElement('div');
+        dot.className = `data-point ${isQuery ? 'query-point' : ''}`;
+        dot.id = id;
+        dot.style.left = x + '%';
+        dot.style.top = (100 - y) + '%'; // Flip Y for visual axis
+        dot.style.backgroundColor = color;
+        
+        const label = document.createElement('div');
+        label.className = 'label';
+        label.style.left = x + '%';
+        label.style.top = (100 - y + 4) + '%';
+        label.innerText = labelText;
+        
+        space.appendChild(dot);
+        space.appendChild(label);
+    }
+</script>
+
+</body>
+</html>
